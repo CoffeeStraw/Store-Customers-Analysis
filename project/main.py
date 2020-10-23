@@ -5,6 +5,7 @@ Authors: CoffeeStraw, sd3ntato
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy import stats
 from math import log
 
 
@@ -91,8 +92,8 @@ def fix_dataset(df: pd.DataFrame):
     """
 
     # === REMOVE THE OUTLIERS ===
-    # WIP
-    def get_outliers(s: pd.Series):
+    # Remvoe outliers from Qta with IQR method, use Zscore for Sale
+    def iqr_non_outliers(s: pd.Series):
         """
         Returns a true-list of the outliers in a column of the DataFrame,
         based on the quantiles
@@ -103,8 +104,8 @@ def fix_dataset(df: pd.DataFrame):
         trueList = ~((s < (Q1 - 1.5 * IQR)) |(s > (Q3 + 1.5 * IQR)))
         return trueList
     
-    #df = df[get_outliers(df["Qta"])]
-    #df = df[get_outliers(df["Sale"])] # Il prezzo non credo vada considerato outlier
+    df = df[iqr_non_outliers(df["Qta"])]
+    df = df[np.abs(stats.zscore(df["Sale"])) < 3]
 
     # Rename columns with names that could mislead
     df.rename(columns={'CustomerCountry': 'PurchaseCountry', 'BasketDate': 'PurchaseDate'}, inplace=True)
@@ -291,6 +292,9 @@ def semantical_analysis(df: pd.DataFrame):
     tmp = tmp[tmp == False].index
     tmp = df[df["ProdID"].isin(tmp)].groupby("ProdID").aggregate({'ProdDescr': 'max'})
 
+    # Do we have sales with more than 3 digit places?
+    tmp = df["Sale"].astype(str).str.contains(r"\.\d{3}").value_counts()
+
 
 if __name__ == "__main__":
     """
@@ -305,10 +309,28 @@ if __name__ == "__main__":
     quit()
     """
 
-    df = pd.read_csv('customer_supermarket_2.csv', index_col=0, parse_dates=["BasketDate"])
+    df = pd.read_csv('customer_supermarket_2.csv', index_col=0, parse_dates=["PurchaseDate"])
+    print(df)
+    quit()
+
+    """
+    s = pd.Series( [g[1]["BasketID"].nunique() for g in df.groupby("PurchaseCountry")], index=[g[0] for g in df.groupby("PurchaseCountry")] )
+    print(s)
+
+    print(sum(s))
+    print(s['United Kingdom'], s['United Kingdom'] / s.sum() * 100)
+    quit()
+    s = s.drop('United Kingdom')
+    #s.sort_values()
+    #s.drop(s[ s<30 ].index).plot(kind='pie',rotatelabels=True)
+    s['others'] = s[ s<30 ].sum()
+
+    s = s.drop(s[ s<30 ].index) 
+    s.plot(kind='pie',rotatelabels=True)
+    """
 
     # === Perform a semantical analysis of the dataset ===
-    semantical_analysis(df)
+    # semantical_analysis(df)
 
     # df["Sale"].plot.box()
     # plt.show()
