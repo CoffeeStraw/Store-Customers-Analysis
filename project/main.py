@@ -5,26 +5,93 @@ Authors: CoffeeStraw, sd3ntato
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from math import log
 
 
 def fix_dataset(df: pd.DataFrame):
     """
     Performs some data quality operations on the dataset
     """
+    pd.set_option('mode.chained_assignment', None)
+
     # Remove duplicates
     df.drop_duplicates(inplace=True)
 
-    # Converts sale to float
+    # Converts sale to float, accomodating the csv format
     df["Sale"] = df["Sale"].str.replace(',', '.').astype(float)
 
-    # Converts CustomerID to int, replacing nulls with -1
-    df["CustomerID"] = df["CustomerID"].fillna(-1).astype(int)
+    # Remove unidentified customers and converts CustomerID to int
+    df.dropna(subset=['CustomerID'], inplace=True)
+    df["CustomerID"] = df["CustomerID"].astype(int)
 
-    # Replace nulls in project description with empty strings
-    df["ProdDescr"] = df["ProdDescr"].fillna(" ").astype(str)
+    # Put all characters in uppercase and remove extra whitespaces for products' description
+    df["ProdDescr"] = df["ProdDescr"].str.upper().str.strip()
+
+    # Put all characters in uppercase for product ids
+    df["ProdID"] = df["ProdID"].str.upper()
+
+    # Remove purchases with prices less or equal to zero, together with some outliers that costs less than 0.01
+    df = df[df["Sale"] >= 0.01]
+
+    # Remove C from basketIDs, since it is pointless (we already have negative quantities to identify those)
+    # NOTE: We also previously dropped baskets starting with 'A', which had negative sale
+    df["BasketID"] = df["BasketID"].str.replace('C', '').astype(int)
+
+    # Uniform descriptions of same productIDs by taking the longest (more informations)
+    tmp = df.groupby(["ProdID"]).nunique()["ProdDescr"].eq(1)
+    tmp = tmp[tmp == False].index
+    new_prod_descr = df[df["ProdID"].isin(tmp)].groupby("ProdID").aggregate({'ProdDescr': 'max'})
+
+    def uniform_descr(x):
+        if x.loc["ProdID"] in new_prod_descr.index:
+            descr = new_prod_descr.loc[x.loc["ProdID"]]["ProdDescr"]
+            x.loc["ProdDescr"] = descr
+        return x
+
+    df[["ProdID", "ProdDescr"]] = df[["ProdID", "ProdDescr"]].apply(uniform_descr, axis=1)
+
+    # Put multiple products in the same basket as a single product (only ones with same sale)
+    df = df.groupby(['BasketID','ProdID', 'Sale']).agg({
+        'BasketDate': 'min',
+        'Qta': 'sum',
+        'CustomerID': 'min',
+        'CustomerCountry': 'min',
+        'ProdDescr': 'min'
+    }).reset_index()
+    
+    # Remove products in the same basket, but having different sales
+    def fun(x):
+        if len(x) > 1:
+            if x["Qta"].iloc[0] > 0 and x["ProdID"].iloc[0] != "M":
+                return x
+
+    tmp = df.groupby(['BasketID','ProdID']).apply(fun).drop_duplicates().dropna()[["BasketID", "ProdID"]]
+    df = df.drop(tmp.index)
+
+    # Tuple che hanno stesso ID oggetto e ID utente, ma hanno prima quantità positiva, poi negativa
+    # (quindi quelle negative hanno indice maggiore)
+    # Non credo la farò, mi sembrano comunque dati utili
+    """
+    to_delete = []
+    def bleah(x):
+        # Get products bought and sold by the same customer
+        tmp = pd.merge( x[x["Qta"] < 0], x[x["Qta"] > 0], how='inner', on=['ProdID'] )["ProdID"]
+        # Get entries containing the pre-calculated products and order by date
+        tmp = x[ x["ProdID"].isin(tmp) ].sort_values("BasketDate")
+
+        if len(tmp.index) == 0:
+            return None
+
+        if tmp["Qta"].iloc[0] < 0:
+            print(tmp)
+            print("=====================")
+
+    tmp = df.groupby( ["CustomerID", "ProdID"] ).apply(bleah)
+    print(tmp)
+    """
 
     # === REMOVE THE OUTLIERS ===
-
+    # WIP
     def get_outliers(s: pd.Series):
         """
         Returns a true-list of the outliers in a column of the DataFrame,
@@ -36,18 +103,58 @@ def fix_dataset(df: pd.DataFrame):
         trueList = ~((s < (Q1 - 1.5 * IQR)) |(s > (Q3 + 1.5 * IQR)))
         return trueList
     
-    df = df[get_outliers(df["Qta"])]
-    # df = df[get_outliers(df["Sale"])] # To be discussed
+    #df = df[get_outliers(df["Qta"])]
+    #df = df[get_outliers(df["Sale"])] # Il prezzo non credo vada considerato outlier
+
+    # Rename columns with names that could mislead
+    df.rename(columns={'CustomerCountry': 'PurchaseCountry', 'BasketDate': 'PurchaseDate'}, inplace=True)
+
+    # Sort by date the dataset and reset indexes
+    df.sort_values("PurchaseDate", inplace=True)
+    df.reset_index(drop=True, inplace=True)
 
     df.to_csv("customer_supermarket_2.csv")
+    pd.set_option('mode.chained_assignment','warn')
 
 
 def customer_profilation(df: pd.DataFrame):
     """Create a new dataset with a profilation of each customer.
     """
     # TODO
-    groups = df.groupby(df["CustomerID"])
-    pd.Series(data=[sum(group[1]["Qta"]) for group in groups], index=[group[0] for group in groups])
+    groups = df[df["Qta"]>0].groupby("CustomerID") 
+    cdf = pd.DataFrame(data=np.array( [
+            [
+            group[0],
+            sum(group[1]["Qta"]), # totale oggetti comprati
+            sum(group[1]["Sale"]*group[1]["Qta"]), # totale soldi spesi
+            len(group[1]["ProdID"].unique()),  # numero oggetti distinti
+            max( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # massimo numero oggetti acquistati in una shopping session
+            max( [ sum( g[1]["Sale"]*g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # massima spesa carrello
+            np.mean( [ sum( g[1]["Sale"]*g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # spesa media carrello
+            np.mean( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ) # media oggetti in carrello
+            ] for group in groups 
+            ] ), columns=["CustomerID","TotalItems","TotalSale","DistinctItems","MaxItems","MaxSale","MeanSale","MeanArticles"]  )
+    cdf.to_csv("customer_profilation.csv")
+
+def shannon_entropy( X : pd.Series ):
+    e = 0
+    m = len(X)
+    for mi in X.value_counts():
+        e += (mi/m)*log( (mi/m) ,2)
+    return -e
+
+def joint_entropy( X : pd.Series, Y : pd.Series ):
+    e = 0
+    df = pd.DataFrame( X ).join( Y );df.columns = ["uno","due"]
+    groups = df.groupby(['uno','due'])
+    m = len(groups.groups)
+    for g in groups:
+        mi = len(g[1])
+        e += (mi/m)*log( (mi/m) ,2)
+    return -e
+
+def mutual_information( X : pd.Series, Y : pd.Series ):
+    return shannon_entropy(X)+shannon_entropy(Y)-joint_entropy(X,Y)
 
 
 def statistics_basketID(df: pd.DataFrame):
@@ -117,6 +224,74 @@ def statistics_qta(df: pd.DataFrame):
     plt.show()
 
 
+def semantical_analysis(df: pd.DataFrame):
+    """Perform some variable wise checks to understand the dataset.
+    """
+    # PRE: Check if basket starting with 'C' all have quantity less than 0
+    # Results: only basket starting with 'C' have quantity less than 0
+    # tmp = df[ (df["BasketID"].str.contains('C')) & (df["Qta"] > 0) ]
+    # tmp = df[ df["Qta"] < 0 ]
+
+    # Check if we have the same product inside the same basket
+    # Result: two cases, same price, different price
+    def check_duplicated_prods(x):
+        if len(x) > 1:
+            if x["Sale"].nunique() == 1:
+                print(x)
+    df.groupby(['BasketID','BasketDate','ProdID']).apply(check_duplicated_prods)
+
+    # Check if with same BasketID we have different datetimes
+    # Results: change BasketDate to PurchaseDate
+    tmp = df.groupby(["BasketID"]).nunique()["BasketDate"].eq(1)
+    tmp = tmp[tmp == False]
+
+    # Check if two customers happend to have the same BasketID
+    # Result: after removing duplicates no other wrong value found
+    tmp = df.groupby(["BasketID", "CustomerID"]).ngroups
+
+    tmp = df.groupby(["BasketID"]).ngroups
+
+    tmp = df.groupby(["BasketID"]).nunique()["CustomerID"].eq(1)
+    tmp = tmp[tmp == False].index
+
+    # Check if discount are always alone in the basket
+    # Result: Almost always, only one time we have it together with Manual
+    tmp = df[
+        df["BasketID"].isin(df[df['ProdID'] == "D"]["BasketID"])
+    ]
+    tmp = tmp[tmp["ProdID"] != "D"]["ProdDescr"]
+    
+    # Check if baskets only are numerical with an optional starting 'C' character
+    # Result: We found baskets starting with 'A', which however will be removed since they have sales less than 0
+    tmp = df[~df['BasketID'].str.contains('C')][df['BasketID'].str.contains('[A-Za-z]')]["BasketID"].unique()
+
+    # Check for strange ProductID (nor alphanumerical code only)
+    # Result: A lot of products contains characters, we get to know about discounts and bank charges
+    tmp = df[df['ProdID'].str.contains('[A-Za-z]')]["ProdID"].unique()
+
+    # Check for non-uppercase descriptions
+    # Result: we get to know about descriptions being inconsistent
+    tmp = df[df['ProdDescr'].str.contains('[a-z]')]["ProdDescr"].unique()
+
+    # Check list of countries
+    # Result: (Get to know about hidden null-values: 'Unknown')
+    tmp = list(sorted(list(df["CustomerCountry"].unique())))
+
+    # Check for strange qta values
+    # Result: Get to know about negative values and outliers
+    tmp = df['Qta'].unique()
+
+    # CustomerCountry seems like the country where the user registered... is that true?
+    # Result: no, since some IDs have different countries. Change name to 'PurchaseCountry'
+    tmp = df.groupby(["CustomerID"]).nunique()["CustomerCountry"].eq(1)
+
+    # Do all ProdID have one ProdDescr?
+    # Result: No, some descriptions are more verbose, we will take those
+    tmp = df.groupby(["ProdID"]).nunique()["ProdDescr"].eq(1)
+    tmp = tmp[tmp == False].index
+    tmp = df[df["ProdID"].isin(tmp)].groupby("ProdID").aggregate({'ProdDescr': 'max'})
+
+
 if __name__ == "__main__":
     """
     df = pd.read_csv('customer_supermarket.csv', sep='\t', index_col=0)
@@ -132,8 +307,11 @@ if __name__ == "__main__":
 
     df = pd.read_csv('customer_supermarket_2.csv', index_col=0, parse_dates=["BasketDate"])
 
-    df["Sale"].plot.box()
-    plt.show()
+    # === Perform a semantical analysis of the dataset ===
+    semantical_analysis(df)
+
+    # df["Sale"].plot.box()
+    # plt.show()
 
     # df["Qta"].plot.box()
     # df["Qta"].corr(df["Sale"])
@@ -144,10 +322,25 @@ if __name__ == "__main__":
     statistics_basketDate(df)
     statistics_qta(df)
     """
-    
-    # print(list(sorted(list(df["CustomerCountry"].unique()))))
 
-    # print(df['CustomerCountry'].unique())
-    # print(df[df['CustomerCountry'].str.contains("Unspecified")].to_string())
+    """ ROBA VALE
+    pd.DataFrame(data=np.array( [
+             [
+              group[0],
+              sum(group[1]["Qta"]), # somma tutti oggetti
+              len(group[1]["ProdID"].unique())  # numero oggetti distinti
+              max( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ) # massimo numero oggetti acquistati in una shopping session
+             ] for group in groups 
+             ] ), columns=["CusomerID","TotalItems","DistinctItems","MaxItems"]  )
 
-    # print(df['Qta'].unique())
+    from math import log
+    # total number of observations m : m
+    # number of observation of category i : mi
+
+    def shannon_entropy(X : pd.Series):
+        e = 0
+        m = len(X)
+        for mi in X.value_counts():
+        e += (mi/m)*log( (mi/m) ,2)
+        return -e
+    """
