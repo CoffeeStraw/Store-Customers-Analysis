@@ -15,9 +15,6 @@ def fix_dataset(df: pd.DataFrame):
     """
     pd.set_option('mode.chained_assignment', None)
 
-    # Remove duplicates
-    df.drop_duplicates(inplace=True)
-
     # Converts sale to float, accomodating the csv format
     df["Sale"] = df["Sale"].str.replace(',', '.').astype(float)
 
@@ -90,6 +87,28 @@ def fix_dataset(df: pd.DataFrame):
     tmp = df.groupby( ["CustomerID", "ProdID"] ).apply(bleah)
     print(tmp)
     """
+
+    # Plot outliers
+    plt.rcParams['figure.figsize'] = 10, 10
+    df["Sale"].plot.box()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_Sale")
+    plt.clf()
+    
+    df["Qta"].plot.box()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_Qta")
+    plt.clf()
+
+    df[abs(df["Sale"])<30]["Sale"].value_counts().sort_index().plot()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_Sale_Distribution")
+    plt.clf()
+
+    df[abs(df["Qta"])<100]["Qta"].value_counts().sort_index().plot()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_Qta_Distribution")
+    plt.clf()
 
     # === REMOVE THE OUTLIERS ===
     # Remvoe outliers from Qta with IQR method, use Zscore for Sale
@@ -172,7 +191,6 @@ def statistics_basketDate(df: pd.DataFrame):
     days_freq = np.array(df["BasketDate"].dt.date)
     days, freq = np.unique(days_freq, return_counts=True)
 
-    plt.rcParams['figure.figsize'] = 15, 6
     fig, ax = plt.subplots()
     ax.plot(days, freq)
 
