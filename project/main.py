@@ -111,7 +111,6 @@ def fix_dataset(df: pd.DataFrame):
     plt.clf()
 
     # === REMOVE THE OUTLIERS ===
-    # Remvoe outliers from Qta with IQR method, use Zscore for Sale
     def iqr_non_outliers(s: pd.Series):
         """
         Returns a true-list of the outliers in a column of the DataFrame,
@@ -123,8 +122,25 @@ def fix_dataset(df: pd.DataFrame):
         trueList = ~((s < (Q1 - 1.5 * IQR)) |(s > (Q3 + 1.5 * IQR)))
         return trueList
     
+    # Remvoe outliers from Qta with IQR method
     df = df[iqr_non_outliers(df["Qta"])]
+    # Remove outliers from Sale based on Z-Score
     df = df[np.abs(stats.zscore(df["Sale"])) < 3]
+
+    # Remove BasketIDs outliers based on zscore
+    df[["BasketID", "Qta"]].groupby("BasketID").agg('sum').plot.box()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_BasketID")
+    plt.clf()
+
+    df[["BasketID", "Qta"]].groupby("BasketID").agg('sum')["Qta"].value_counts().sort_index().plot()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_BasketID_Distribution")
+    plt.clf()
+
+    tmp = df[["BasketID", "Qta"]].groupby("BasketID").agg('sum')
+    tmp = tmp[np.abs(stats.zscore(tmp)) < 3].index
+    df = df[df["BasketID"].isin(tmp)]
 
     # Rename columns with names that could mislead
     df.rename(columns={'CustomerCountry': 'PurchaseCountry', 'BasketDate': 'PurchaseDate'}, inplace=True)
@@ -133,6 +149,10 @@ def fix_dataset(df: pd.DataFrame):
     df.sort_values("PurchaseDate", inplace=True)
     df.reset_index(drop=True, inplace=True)
 
+    # Swap columns
+    df = df[["BasketID", "ProdID", "Sale", "Qta", "ProdDescr", "PurchaseDate", "PurchaseCountry", "CustomerID"]]
+
+    # Save the pre-processed dataset
     df.to_csv("customer_supermarket_2.csv")
     pd.set_option('mode.chained_assignment','warn')
 
@@ -143,17 +163,18 @@ def customer_profilation(df: pd.DataFrame):
     # TODO
     groups = df[df["Qta"]>0].groupby("CustomerID") 
     cdf = pd.DataFrame(data=np.array( [
-            [
-            group[0],
-            sum(group[1]["Qta"]), # totale oggetti comprati
-            sum(group[1]["Sale"]*group[1]["Qta"]), # totale soldi spesi
-            len(group[1]["ProdID"].unique()),  # numero oggetti distinti
-            max( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # massimo numero oggetti acquistati in una shopping session
-            max( [ sum( g[1]["Sale"]*g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # massima spesa carrello
-            np.mean( [ sum( g[1]["Sale"]*g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # spesa media carrello
-            np.mean( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ) # media oggetti in carrello
-            ] for group in groups 
-            ] ), columns=["CustomerID","TotalItems","TotalSale","DistinctItems","MaxItems","MaxSale","MeanSale","MeanArticles"]  )
+        [
+        group[0],
+        sum(group[1]["Qta"]), # totale oggetti comprati
+        sum(group[1]["Sale"]*group[1]["Qta"]), # totale soldi spesi
+        len(group[1]["ProdID"].unique()), # numero oggetti distinti
+        max( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # massimo numero oggetti acquistati in una shopping session
+        max( [ sum( g[1]["Sale"]*g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # massima spesa carrello
+        np.mean( [ sum( g[1]["Sale"]*g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # spesa media carrello
+        np.mean( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # media oggetti in carrello
+        group[1].groupby('ProdID').aggregate({'Qta':'sum'}).idxmax()[0] #oggetto preferito
+        ] for group in groups 
+        ] ), columns=["CustomerID","TotalItems","TotalSale","DistinctItems","MaxItems","MaxSale","MeanSale","MeanArticles","PreferedItem"] )
     cdf.to_csv("customer_profilation.csv")
 
 def shannon_entropy( X : pd.Series ):
