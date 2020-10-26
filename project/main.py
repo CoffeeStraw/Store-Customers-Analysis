@@ -28,7 +28,7 @@ def fix_dataset(df: pd.DataFrame):
     # Put all characters in uppercase for product ids
     df["ProdID"] = df["ProdID"].str.upper()
 
-    # Remove purchases with prices less or equal to zero, together with some outliers that costs less than 0.01
+    # Remove purchases with prices less than or equal to zero, together with some outliers that costs less than 0.01
     df = df[df["Sale"] >= 0.01]
 
     # Remove C from basketIDs, since it is pointless (we already have negative quantities to identify those)
@@ -38,7 +38,7 @@ def fix_dataset(df: pd.DataFrame):
     # Uniform descriptions of same productIDs by taking the longest (more informations)
     tmp = df.groupby(["ProdID"]).nunique()["ProdDescr"].eq(1)
     tmp = tmp[tmp == False].index
-    new_prod_descr = df[df["ProdID"].isin(tmp)].groupby("ProdID").aggregate({'ProdDescr': 'max'})
+    new_prod_descr = df[df["ProdID"].isin(tmp)].groupby("ProdID").agg({'ProdDescr': 'max'})
 
     def uniform_descr(x):
         if x.loc["ProdID"] in new_prod_descr.index:
@@ -88,29 +88,8 @@ def fix_dataset(df: pd.DataFrame):
     print(tmp)
     """
 
-    # Plot outliers
-    plt.rcParams['figure.figsize'] = 10, 10
-    df["Sale"].plot.box()
-    plt.tight_layout()
-    plt.savefig("../report/imgs/Outliers_Sale")
-    plt.clf()
-    
-    df["Qta"].plot.box()
-    plt.tight_layout()
-    plt.savefig("../report/imgs/Outliers_Qta")
-    plt.clf()
-
-    df[abs(df["Sale"])<30]["Sale"].value_counts().sort_index().plot()
-    plt.tight_layout()
-    plt.savefig("../report/imgs/Outliers_Sale_Distribution")
-    plt.clf()
-
-    df[abs(df["Qta"])<100]["Qta"].value_counts().sort_index().plot()
-    plt.tight_layout()
-    plt.savefig("../report/imgs/Outliers_Qta_Distribution")
-    plt.clf()
-
     # === REMOVE THE OUTLIERS ===
+    plt.rcParams['figure.figsize'] = 10, 10
     def iqr_non_outliers(s: pd.Series):
         """
         Returns a true-list of the outliers in a column of the DataFrame,
@@ -121,61 +100,66 @@ def fix_dataset(df: pd.DataFrame):
         IQR = Q3 - Q1
         trueList = ~((s < (Q1 - 1.5 * IQR)) |(s > (Q3 + 1.5 * IQR)))
         return trueList
-    
-    # Remvoe outliers from Qta with IQR method
-    df = df[iqr_non_outliers(df["Qta"])]
-    # Remove outliers from Sale based on Z-Score
-    df = df[np.abs(stats.zscore(df["Sale"])) < 3]
 
-    # Remove BasketIDs outliers based on zscore
-    df[["BasketID", "Qta"]].groupby("BasketID").agg('sum').plot.box()
+    # Remove outliers from Sale based on Z-Score
+    df_sale = df["Sale"]
+
+    df_sale.plot.box()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_Sale")
+    plt.clf()
+
+    df_sale[df_sale < 50].hist(bins=100)
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_Sale_Distribution")
+    plt.clf()
+
+    df = df[abs(stats.zscore(df_sale)) < 3]
+
+    # Remvoe outliers from Qta with IQR method
+    df_qta = df["Qta"]
+
+    df_qta.plot.box()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_Qta")
+    plt.clf()
+
+    df_qta[abs(df_qta) < 100].hist(bins=100)
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_Qta_Distribution")
+    plt.clf()
+
+    df = df[iqr_non_outliers(df_qta)]
+
+    # Remove outliers from BasketID based on zscore
+    df_articles_per_basket = df[["BasketID", "Qta"]].groupby("BasketID").agg('sum')["Qta"]
+
+    df_articles_per_basket.plot.box()
     plt.tight_layout()
     plt.savefig("../report/imgs/Outliers_BasketID")
     plt.clf()
 
-    df[["BasketID", "Qta"]].groupby("BasketID").agg('sum')["Qta"].value_counts().sort_index().plot()
+    df_articles_per_basket[abs(df_articles_per_basket) < 2000].hist(bins=100)
     plt.tight_layout()
     plt.savefig("../report/imgs/Outliers_BasketID_Distribution")
     plt.clf()
 
-    tmp = df[["BasketID", "Qta"]].groupby("BasketID").agg('sum')
-    tmp = tmp[np.abs(stats.zscore(tmp)) < 3].index
-    df = df[df["BasketID"].isin(tmp)]
+    bid_good = df_articles_per_basket[abs(stats.zscore(df_articles_per_basket)) < 3].index
+    df = df[df["BasketID"].isin(bid_good)]
 
     # Rename columns with names that could mislead
     df.rename(columns={'CustomerCountry': 'PurchaseCountry', 'BasketDate': 'PurchaseDate'}, inplace=True)
+
+    # Swap columns
+    df = df[["BasketID", "ProdID", "Sale", "Qta", "ProdDescr", "PurchaseDate", "PurchaseCountry", "CustomerID"]]
 
     # Sort by date the dataset and reset indexes
     df.sort_values("PurchaseDate", inplace=True)
     df.reset_index(drop=True, inplace=True)
 
-    # Swap columns
-    df = df[["BasketID", "ProdID", "Sale", "Qta", "ProdDescr", "PurchaseDate", "PurchaseCountry", "CustomerID"]]
-
     # Save the pre-processed dataset
     df.to_csv("customer_supermarket_2.csv")
     pd.set_option('mode.chained_assignment','warn')
-
-
-def customer_profilation(df: pd.DataFrame):
-    """Create a new dataset with a profilation of each customer.
-    """
-    # TODO
-    groups = df[df["Qta"]>0].groupby("CustomerID") 
-    cdf = pd.DataFrame(data=np.array( [
-        [
-        group[0],
-        sum(group[1]["Qta"]), # totale oggetti comprati
-        sum(group[1]["Sale"]*group[1]["Qta"]), # totale soldi spesi
-        len(group[1]["ProdID"].unique()), # numero oggetti distinti
-        max( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # massimo numero oggetti acquistati in una shopping session
-        max( [ sum( g[1]["Sale"]*g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # massima spesa carrello
-        np.mean( [ sum( g[1]["Sale"]*g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # spesa media carrello
-        np.mean( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # media oggetti in carrello
-        group[1].groupby('ProdID').aggregate({'Qta':'sum'}).idxmax()[0] #oggetto preferito
-        ] for group in groups 
-        ] ), columns=["CustomerID","TotalItems","TotalSale","DistinctItems","MaxItems","MaxSale","MeanSale","MeanArticles","PreferedItem"] )
-    cdf.to_csv("customer_profilation.csv")
 
 def shannon_entropy( X : pd.Series ):
     e = 0
@@ -196,6 +180,34 @@ def joint_entropy( X : pd.Series, Y : pd.Series ):
 
 def mutual_information( X : pd.Series, Y : pd.Series ):
     return shannon_entropy(X)+shannon_entropy(Y)-joint_entropy(X,Y)
+
+
+def customer_profilation(df: pd.DataFrame):
+    """Create a new dataset with a profilation of each customer.
+    """
+    def entropy(group):
+        l = group[1][["ProdID", "Qta"]].groupby('ProdID').agg('sum')
+        m = l.values.sum()
+        e = -sum( [ (mi/m)*log( (mi/m) ,2) for mi in l.values.flatten() ] )
+        return round(e, 3)
+    
+    groups = df[df["Qta"]>0].groupby("CustomerID")
+    cdf = pd.DataFrame(data=np.array( [
+        [
+        group[0], # customerID 
+        sum( group[1]["Qta"] ), # total purchased items
+        len( group[1]["ProdID"].unique() ),  # number of distinct items
+        max( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), # maximum number of purchased items in a shopping session
+        entropy(group), # entropy of purchasing behavior
+        round( sum(group[1]["Sale"]*group[1]["Qta"] ), 2), # total money spent
+        round( max( [ sum( g[1]["Sale"]*g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] ), 2), # max amount for a basket
+        round( np.mean( [ sum( g[1]["Sale"]*g[1]["Qta"] ) for g in group[1].groupby( "BasketID" ) ] ), 2), # medium amount for a basket
+        int( np.mean( [ sum( g[1]["Qta"] ) for g in group[1].groupby("BasketID") ] )), # medium object in basket
+        group[1].groupby('ProdID').aggregate({'Qta':'sum'}).idxmax()[0], # preferred item
+        group[1][['BasketID','PurchaseCountry']].groupby('PurchaseCountry').nunique().idxmax()[0] # main country
+        ] for group in groups 
+    ] ), columns=["CustomerID","l","lu","lmax","E","TotalSale","MaxSale","MeanSale","MeanItems","PreferedItem","MainCountry"] ).set_index("CustomerID")
+    cdf.to_csv("customer_profilation.csv")
 
 
 def statistics_basketID(df: pd.DataFrame):
@@ -337,7 +349,7 @@ def semantical_analysis(df: pd.DataFrame):
 
 if __name__ == "__main__":
     """
-    df = pd.read_csv('customer_supermarket.csv', sep='\t', index_col=0)
+    df = pd.read_csv('customer_supermarket.csv', sep='\t', index_col=0, parse_dates=["BasketDate"])
 
     # Prints data's samples and informations,
     # including the number of not null values for each columns
@@ -349,8 +361,64 @@ if __name__ == "__main__":
     """
 
     df = pd.read_csv('customer_supermarket_2.csv', index_col=0, parse_dates=["PurchaseDate"])
-    print(df)
+
+    customer_profilation(df)
     quit()
+
+    # === Data Distribution & Statistics ===
+    # Sale statistics
+    # print(df["Sale"].describe())
+
+    # Sale distribution
+    """
+    df_products_catalog = df[["ProdID", "Sale"]].drop_duplicates()["Sale"]
+    print(df_products_catalog.describe())
+
+    df_products_catalog.hist(bins=50)
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Sale_Distribution")
+    plt.clf()
+
+    df_products_catalog.plot.box()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Sale_Box_Plot")
+    plt.clf()
+
+    # Distribution of buys and returns
+    print((df["Qta"] > 0).value_counts())
+    print(df[df["Qta"] > 0]["Qta"].describe())
+    print(df[df["Qta"] < 0]["Qta"].describe())
+
+    df.plot.scatter('Qta', 'Sale', c='Sale', colormap='viridis', colorbar=False)
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Sale_Qta_Distribution")
+    plt.clf()
+    """
+
+    # Monthly profit
+    """
+    tmp = df["Sale"] * df["Qta"]
+    tmp = df[["PurchaseDate", "Sale"]].groupby(
+        lambda i: f"{df.loc[i]['PurchaseDate'].year}/{df.loc[i]['PurchaseDate'].month}"
+    ).agg('sum')
+
+    tmp.plot.bar()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Monthly_Profit_Bar")
+    plt.clf()
+    """
+
+    # Monthly Baskets
+    tmp = df[["PurchaseDate", "BasketID"]].drop_duplicates().groupby(
+        lambda i: f"{df.loc[i]['PurchaseDate'].year}/{df.loc[i]['PurchaseDate'].month}"
+    ).size()
+    tmp.rename("Baskets", inplace=True)
+    print(tmp)
+
+    tmp.plot.bar()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Monthly_Baskets_Bar")
+    plt.clf()
 
     """
     s = pd.Series( [g[1]["BasketID"].nunique() for g in df.groupby("PurchaseCountry")], index=[g[0] for g in df.groupby("PurchaseCountry")] )
