@@ -11,29 +11,6 @@ from natsort import natsorted
 import seaborn as sn
 
 
-def shannon_entropy( X : pd.Series ):
-    e = 0
-    m = len(X)
-    for mi in X.value_counts():
-        e += (mi/m)*log( (mi/m) ,2)
-    return -e
-
-
-def joint_entropy( X : pd.Series, Y : pd.Series ):
-    e = 0
-    df = pd.DataFrame( X ).join( Y );df.columns = ["uno","due"]
-    groups = df.groupby(['uno','due'])
-    m = len(groups.groups)
-    for g in groups:
-        mi = len(g[1])
-        e += (mi/m)*log( (mi/m) ,2)
-    return -e
-
-
-def mutual_information( X : pd.Series, Y : pd.Series ):
-    return shannon_entropy(X)+shannon_entropy(Y)-joint_entropy(X,Y)
-
-
 def plt_radar(df: pd.DataFrame, filepath=""):
     """Represent a DataFrame using a radar plot.
     """
@@ -214,28 +191,6 @@ def fix_dataset(df: pd.DataFrame):
     tmp = df.groupby(['BasketID','ProdID']).apply(fun).drop_duplicates().dropna()[["BasketID", "ProdID"]]
     df = df.drop(tmp.index)
 
-    # Tuple che hanno stesso ID oggetto e ID utente, ma hanno prima quantità positiva, poi negativa
-    # (quindi quelle negative hanno indice maggiore)
-    # Non credo la farò, mi sembrano comunque dati utili
-    """
-    to_delete = []
-    def bleah(x):
-        # Get products bought and sold by the same customer
-        tmp = pd.merge( x[x["Qta"] < 0], x[x["Qta"] > 0], how='inner', on=['ProdID'] )["ProdID"]
-        # Get entries containing the pre-calculated products and order by date
-        tmp = x[ x["ProdID"].isin(tmp) ].sort_values("BasketDate")
-
-        if len(tmp.index) == 0:
-            return None
-
-        if tmp["Qta"].iloc[0] < 0:
-            print(tmp)
-            print("=====================")
-
-    tmp = df.groupby( ["CustomerID", "ProdID"] ).apply(bleah)
-    print(tmp)
-    """
-
     # === REMOVE THE OUTLIERS ===
     plt.rcParams['figure.figsize'] = 10, 10
     def iqr_non_outliers(s: pd.Series):
@@ -295,6 +250,35 @@ def fix_dataset(df: pd.DataFrame):
     bid_good = df_articles_per_basket[abs(stats.zscore(df_articles_per_basket)) < 3].index
     df = df[df["BasketID"].isin(bid_good)]
 
+    # Remove outliers from CustomerID based on zscore
+    df_totsale_per_user = pd.Series([round( sum( g[1]["Sale"]*g[1]["Qta"] ), 2) for g in df.groupby('CustomerID')], index=[g[0] for g in df.groupby('CustomerID')])
+    
+    df_totsale_per_user.plot.box()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_CustomerID")
+    plt.clf()
+
+    df_totsale_per_user.hist(bins=100)
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Outliers_CustomerID_Distribution")
+    plt.clf()
+
+    cid_good = df_totsale_per_user[abs(stats.zscore(df_totsale_per_user)) < 3].index
+    df = df[df["CustomerID"].isin(cid_good)]
+
+    # Drop rows corresponding to returns without relative purchase (inconsistent data)
+    invalid_indexes = []
+    def get_invalid_indexes(x):
+        x = x.sort_values(by='BasketDate')
+        s = 0
+        for i, qta in enumerate(x['Qta']):
+            if (s := s + qta) < 0:
+                invalid_indexes.append(x.iloc[i].name)
+
+    df[ ~df["ProdID"].isin(['M', 'D', 'BANK CHARGES']) ].groupby(['CustomerID', 'ProdID']).apply(get_invalid_indexes)
+    print("N. of dropped inconsistent returns:", len(invalid_indexes))
+    df.drop(invalid_indexes, inplace=True)
+
     # Rename columns with names that could mislead
     df.rename(columns={'CustomerCountry': 'PurchaseCountry', 'BasketDate': 'PurchaseDate'}, inplace=True)
 
@@ -311,11 +295,11 @@ def fix_dataset(df: pd.DataFrame):
 
 def distribution_and_statistics(df: pd.DataFrame):
     # Sale statistics
-    print(df["Sale"].describe())
+    print("SALE DESCRIBE:", df["Sale"].describe())
 
     # Sale distribution
     df_products_catalog = df[["ProdID", "Sale"]].drop_duplicates()["Sale"]
-    print(df_products_catalog.describe())
+    print("PRODUCTS CATALOG DESCRIBE:", df_products_catalog.describe())
 
     df_products_catalog.hist(bins=50)
     plt.tight_layout()
@@ -328,15 +312,14 @@ def distribution_and_statistics(df: pd.DataFrame):
     plt.clf()
 
     # Distribution of buys and returns
-    print((df["Qta"] > 0).value_counts())
-    print(df[df["Qta"] > 0]["Qta"].describe())
-    print(df[df["Qta"] < 0]["Qta"].describe())
+    print("RATION QTA POSITIVE/NEGATIVE:", (df["Qta"] > 0).value_counts())
+    print("STATISTICS QTA > 0:", df[df["Qta"] > 0]["Qta"].describe())
+    print("STATISTICS QTA < 0:", df[df["Qta"] < 0]["Qta"].describe())
 
     df.plot.scatter('Qta', 'Sale', c='Sale', colormap='winter', colorbar=False, figsize=(10,7))
     plt.tight_layout()
     plt.savefig("../report/imgs/Sale_Qta_Distribution")
     plt.clf()
-    quit()
 
     # === Monthly statistics ===
     def year_month(i):
@@ -352,7 +335,9 @@ def distribution_and_statistics(df: pd.DataFrame):
     monthly_stats["Baskets"] = df[["PurchaseDate", "BasketID"]].drop_duplicates().groupby(year_month).size()
     monthly_stats = monthly_stats.reindex(index=natsorted(monthly_stats.index))
 
-    print("CORRELAZIONE: ", monthly_stats.corr())
+    print("MONTHLY STATS:", monthly_stats)
+    print("CORRELAZIONE:")
+    print(monthly_stats.corr())
 
     monthly_stats['Baskets'] = monthly_stats['Baskets'] / sum(monthly_stats['Baskets']) * 100
     monthly_stats['Profit'] = monthly_stats['Profit'] / sum(monthly_stats['Profit']) * 100
@@ -371,7 +356,9 @@ def distribution_and_statistics(df: pd.DataFrame):
 
     country_stats["Baskets"] = df[['PurchaseCountry', 'BasketID']].groupby('PurchaseCountry').agg(lambda x: x.nunique())['BasketID']
 
-    print("CORRELAZIONE: ", country_stats.corr())
+    print("COUNTRY STATS:", country_stats)
+    print("CORRELAZIONE:")
+    print(country_stats.corr())
 
     # We prepare two plots: the first one using only UK while grouping the other, the second one is without UK
     tmp = country_stats[country_stats.index != 'United Kingdom'].agg('sum')
@@ -381,9 +368,6 @@ def distribution_and_statistics(df: pd.DataFrame):
     # Normalize values
     country_stats1['Baskets'] = country_stats1['Baskets'] / sum(country_stats1['Baskets']) * 100
     country_stats1['Profit'] = country_stats1['Profit'] / sum(country_stats1['Profit']) * 100
-
-    # We also tried to use a radar plot
-    # plt_radar(country_stats1, filename="Country_Radar")
 
     country_stats1.plot.bar(figsize=(4,7))
     plt.tight_layout()
@@ -402,6 +386,10 @@ def distribution_and_statistics(df: pd.DataFrame):
     country_stats2['Profit'] = country_stats2['Profit'] / sum(country_stats2['Profit']) * 100
 
     plt_radar(country_stats2, "../report/imgs/Country_Basket_Profit_No_UK")
+
+    # Countries per month (scrivi meglio)
+    # df.groupby([year_month, 'PurchaseCountry']).agg(lambda x: print(x))
+    # quit()
 
     # Most popular products
     popular_prods = df[['ProdDescr', 'Qta']].groupby('ProdDescr').agg('sum').sort_values(by='Qta', ascending=False).head(30)
@@ -487,7 +475,7 @@ if __name__ == "__main__":
     quit()
     """
 
-    # df = pd.read_csv('customer_supermarket_2.csv', index_col=0, parse_dates=["PurchaseDate"])
+    df = pd.read_csv('customer_supermarket_2.csv', index_col=0, parse_dates=["PurchaseDate"])
 
     # === Data Distribution & Statistics ===
     # distribution_and_statistics(df)
@@ -495,9 +483,13 @@ if __name__ == "__main__":
     # === CUSTOMER PROFILATION ===
     # customer_profilation(df)
     cdf = pd.read_csv('customer_profilation.csv')
+
+    """
     sn.heatmap(cdf.drop('CustomerID', axis=1).corr(), annot=True)
     plt.show()
     plt.clf()
 
     pd.plotting.scatter_matrix(cdf,figsize=(15,15))
     plt.show()
+    plt.clf()
+    """
