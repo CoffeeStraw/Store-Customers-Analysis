@@ -60,7 +60,7 @@ def plt_radar(df: pd.DataFrame, filepath=""):
     # Show or save?
     if not filepath:
         plt.show()
-        plt.clf()
+        plt.close()
     else:
         plt.savefig(filepath)
 
@@ -210,12 +210,12 @@ def fix_dataset(df: pd.DataFrame):
     df_sale.plot.box()
     plt.tight_layout()
     plt.savefig("../report/imgs/Outliers_Sale")
-    plt.clf()
+    plt.close()
 
     df_sale[df_sale < 50].hist(bins=100)
     plt.tight_layout()
     plt.savefig("../report/imgs/Outliers_Sale_Distribution")
-    plt.clf()
+    plt.close()
 
     df = df[abs(stats.zscore(df_sale)) < 3]
 
@@ -225,12 +225,12 @@ def fix_dataset(df: pd.DataFrame):
     df_qta.plot.box()
     plt.tight_layout()
     plt.savefig("../report/imgs/Outliers_Qta")
-    plt.clf()
+    plt.close()
 
     df_qta[abs(df_qta) < 100].hist(bins=100)
     plt.tight_layout()
     plt.savefig("../report/imgs/Outliers_Qta_Distribution")
-    plt.clf()
+    plt.close()
 
     df = df[iqr_non_outliers(df_qta)]
 
@@ -240,12 +240,12 @@ def fix_dataset(df: pd.DataFrame):
     df_articles_per_basket.plot.box()
     plt.tight_layout()
     plt.savefig("../report/imgs/Outliers_BasketID")
-    plt.clf()
+    plt.close()
 
     df_articles_per_basket[abs(df_articles_per_basket) < 2000].hist(bins=100)
     plt.tight_layout()
     plt.savefig("../report/imgs/Outliers_BasketID_Distribution")
-    plt.clf()
+    plt.close()
 
     bid_good = df_articles_per_basket[abs(stats.zscore(df_articles_per_basket)) < 3].index
     df = df[df["BasketID"].isin(bid_good)]
@@ -256,12 +256,12 @@ def fix_dataset(df: pd.DataFrame):
     df_totsale_per_user.plot.box()
     plt.tight_layout()
     plt.savefig("../report/imgs/Outliers_CustomerID")
-    plt.clf()
+    plt.close()
 
     df_totsale_per_user.hist(bins=100)
     plt.tight_layout()
     plt.savefig("../report/imgs/Outliers_CustomerID_Distribution")
-    plt.clf()
+    plt.close()
 
     cid_good = df_totsale_per_user[abs(stats.zscore(df_totsale_per_user)) < 3].index
     df = df[df["CustomerID"].isin(cid_good)]
@@ -304,12 +304,12 @@ def distribution_and_statistics(df: pd.DataFrame):
     df_products_catalog.hist(bins=50)
     plt.tight_layout()
     plt.savefig("../report/imgs/Sale_Distribution")
-    plt.clf()
+    plt.close()
 
     df_products_catalog.plot.box()
     plt.tight_layout()
     plt.savefig("../report/imgs/Sale_Box_Plot")
-    plt.clf()
+    plt.close()
 
     # Distribution of buys and returns
     print("RATION QTA POSITIVE/NEGATIVE:", (df["Qta"] > 0).value_counts())
@@ -319,7 +319,7 @@ def distribution_and_statistics(df: pd.DataFrame):
     df.plot.scatter('Qta', 'Sale', c='Sale', colormap='winter', colorbar=False, figsize=(10,7))
     plt.tight_layout()
     plt.savefig("../report/imgs/Sale_Qta_Distribution")
-    plt.clf()
+    plt.close()
 
     # === Monthly statistics ===
     def year_month(i):
@@ -346,7 +346,7 @@ def distribution_and_statistics(df: pd.DataFrame):
     plt.tight_layout()
     plt.legend(loc=2, prop={'size': 15})
     plt.savefig("../report/imgs/Monthly_Baskets_Profit")
-    plt.clf()
+    plt.close()
 
     # Number of baskets and profit per country
     tmp = df[["PurchaseCountry", "Sale", "Qta"]]
@@ -372,7 +372,7 @@ def distribution_and_statistics(df: pd.DataFrame):
     country_stats1.plot.bar(figsize=(4,7))
     plt.tight_layout()
     plt.savefig("../report/imgs/Country_Baskets_Profit")
-    plt.clf()
+    plt.close()
 
     # Remove United Kingdom
     country_stats2 = country_stats.drop('United Kingdom')
@@ -387,16 +387,33 @@ def distribution_and_statistics(df: pd.DataFrame):
 
     plt_radar(country_stats2, "../report/imgs/Country_Basket_Profit_No_UK")
 
-    # Countries per month (scrivi meglio)
-    # df.groupby([year_month, 'PurchaseCountry']).agg(lambda x: print(x))
-    # quit()
+    # Line-Scatter Plot
+    tmp.drop('United Kingdom', axis=1).plot.area(figsize=(16,8), legend='reverse').legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+
+    # Monthly activity per country
+    ma_country = df.groupby(['PurchaseCountry', year_month]).apply(lambda x: sum(x["Qta"] * x["Sale"]))
+    ma_country = ma_country.unstack(level=0)
+    
+    ma_country = ma_country.reindex(sorted(ma_country.columns), axis=1)
+    ma_country = ma_country.reindex(index=natsorted(ma_country.index))
+    for i, c in enumerate(ma_country.columns):
+        ma_country[c][ma_country[c].notnull()] = i
+
+    f = ma_country.plot.line(figsize=(16,8), legend=False, style='-o')
+    f.set_xticks(range(0, len(ma_country.index)))
+    f.set_xticklabels([x.replace('/', '\n') for x in ma_country.index])
+    f.set_yticks(range(0, len(ma_country.columns)))
+    f.set_yticklabels(list(ma_country.columns))
+    plt.tight_layout()
+    plt.savefig("../report/imgs/Monthly_Activity_Country")
+    plt.close()
 
     # Most popular products
     popular_prods = df[['ProdDescr', 'Qta']].groupby('ProdDescr').agg('sum').sort_values(by='Qta', ascending=False).head(30)
     popular_prods.plot.barh(figsize=(20,10), color='darkred')
     plt.tight_layout()
     plt.savefig("../report/imgs/Products_Popular")
-    plt.clf()
+    plt.close()
 
 
 def customer_profilation(df: pd.DataFrame):
@@ -460,6 +477,62 @@ def customer_profilation(df: pd.DataFrame):
     cdf.to_csv("customer_profilation.csv")
 
 
+def customer_statistics(cdf: pd.DataFrame):
+    """
+    Statistics obtained from customer profilation.
+    """
+    print('---------- BASIC INFORMATION ----------')
+    print( cdf.info() )
+    print('---------- INDIVIDUAL ATTRIBUTE STATISTICS ----------')
+    print( cdf.describe() )
+
+    # Distrituion of numerical attributes with histograms
+    cdf.hist(figsize=(12,12))
+    plt.tight_layout()
+    plt.savefig("../report/imgs/cdf_Histograms")
+    plt.close()
+
+    # Distrituion of numerical attributes with box-plots
+    cdf.plot.box(figsize=(12,12))
+    plt.tight_layout()
+    plt.savefig("../report/imgs/cdf_Box_Plots")
+    plt.close()
+
+    # Pairwise xorrelations with heatmap on correlation matrix
+    fig, ax = plt.subplots(figsize=(12,10))
+    sn.heatmap(cdf.corr(), annot=True, ax=ax)
+    plt.tight_layout()
+    plt.savefig("../report/imgs/cdf_HeatMap_Pairwise_Correlations")
+    plt.close()
+
+    # lu vs E
+    cdf.plot.scatter('lu','E',c='lmax',colormap='viridis')
+    plt.tight_layout()
+    plt.savefig("../report/imgs/cdf_lu_vs_E")
+    plt.close()
+
+    # l vs TotSale
+    cdf.plot.scatter('l','TotSale',c='E',colormap='plasma')
+    plt.tight_layout()
+    plt.savefig("../report/imgs/cdf_l_vs_TotSale")
+    plt.close()
+
+    # l vs PReturn ( unico che droppa info nascosta: chi ha comprato tanti articoli solitamente non li riporta )
+    cdf.plot.scatter('l','PReturn',c='E',colormap='viridis')
+    plt.tight_layout()
+    plt.savefig("../report/imgs/cdf_lu_vs_PReturn")
+    plt.close()
+
+    # TEST
+    cdf.plot.scatter('TotSale','MeanSale',c='E',colormap='viridis')
+    cdf.plot.scatter('l','MeanItems',c='E',colormap='viridis')
+    plt.show()
+    plt.close()
+
+    pd.plotting.scatter_matrix(cdf)
+    plt.show()
+    plt.close()
+
 if __name__ == "__main__":
     pd.set_option('mode.chained_assignment', None)
 
@@ -479,17 +552,18 @@ if __name__ == "__main__":
 
     # === Data Distribution & Statistics ===
     # distribution_and_statistics(df)
-
+    
     # === CUSTOMER PROFILATION ===
     # customer_profilation(df)
-    cdf = pd.read_csv('customer_profilation.csv')
+    cdf = pd.read_csv('customer_profilation.csv', index_col=0)
+    customer_statistics(cdf)
 
     """
     sn.heatmap(cdf.drop('CustomerID', axis=1).corr(), annot=True)
     plt.show()
-    plt.clf()
+    plt.close()
 
     pd.plotting.scatter_matrix(cdf,figsize=(15,15))
     plt.show()
-    plt.clf()
+    plt.close()
     """
