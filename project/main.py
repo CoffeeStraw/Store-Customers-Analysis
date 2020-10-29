@@ -432,7 +432,7 @@ def customer_profilation(df: pd.DataFrame):
     # Total purchased items
     l = lambda g: sum( g["Qta"] )
     # Number of distinct items
-    lu = lambda g: len( g["ProdID"].unique() )
+    lu = lambda g: g["ProdID"].nunique()
     # Maximum number of purchased items in a shopping session
     lmax = lambda g: max( [ sum( g1[1]["Qta"] ) for g1 in g.groupby("BasketID") ] )
     # Total money spent
@@ -447,7 +447,9 @@ def customer_profilation(df: pd.DataFrame):
     preferred_item = lambda g: g.groupby('ProdID').agg({'Qta':'sum'}).idxmax()[0]
     # Main country
     main_country = lambda g: g[['BasketID','PurchaseCountry']].groupby('PurchaseCountry').nunique().idxmax()[0] 
-    
+    #Number of baskets
+    n_baskets = lambda g:  g['BasketID'].nunique()
+
     groups = df[df["Qta"]>0].groupby("CustomerID")
     cdf = pd.DataFrame(data=np.array( [
         [
@@ -456,6 +458,7 @@ def customer_profilation(df: pd.DataFrame):
         lu(group[1]),
         lmax(group[1]), 
         entropy(group[1]),
+        n_baskets(group[1]),
         tot_sale(group[1]),
         max_sale(group[1]),
         mean_sale(group[1]),
@@ -463,7 +466,7 @@ def customer_profilation(df: pd.DataFrame):
         preferred_item(group[1]),
         main_country(group[1])
         ] for group in groups
-    ] ), columns=["CustomerID","l","lu","lmax","E","TotSale","MaxSale","MeanSale","MeanItems","PrefItem","MainCountry"] )
+    ] ), columns=["CustomerID","l","lu","lmax","E","NBaskets","TotSale","MaxSale","MeanSale","MeanItems","PrefItem","MainCountry"] )
     cdf.set_index('CustomerID',inplace=True)
 
     # Workaround for Pandas' bug (not able to convert to correct dtypes)
@@ -485,56 +488,67 @@ def customer_statistics(cdf: pd.DataFrame):
     """
     Statistics obtained from customer profilation.
     """
+    
+    pd.plotting.scatter_matrix(cdf)
+
     print('---------- BASIC INFORMATION ----------')
     print( cdf.info() )
     print('---------- INDIVIDUAL ATTRIBUTE STATISTICS ----------')
     print( cdf.describe() )
 
     # Distrituion of numerical attributes with histograms
-    cdf.hist(figsize=(12,12))
+    cdf.hist(bins=50)
     plt.tight_layout()
     plt.savefig("../report/imgs/cdf_Histograms")
     plt.close()
 
     # Distrituion of numerical attributes with box-plots
-    cdf.plot.box(figsize=(12,12))
+    cdf.plot.box()
     plt.tight_layout()
     plt.savefig("../report/imgs/cdf_Box_Plots")
     plt.close()
 
     # Pairwise xorrelations with heatmap on correlation matrix
-    fig, ax = plt.subplots(figsize=(12,10))
-    sn.heatmap(cdf.corr(), annot=True, ax=ax)
+    _, ax = plt.subplots()
+    sn.heatmap(cdf.corr(), cmap='coolwarm', annot=True, ax=ax)
     plt.tight_layout()
     plt.savefig("../report/imgs/cdf_HeatMap_Pairwise_Correlations")
     plt.close()
 
     # lu vs E
-    cdf.plot.scatter('lu','E',c='lmax',colormap='viridis')
+    cdf['log(lu)']=np.log(cdf['lu'])
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12,3))
+    cdf.plot.scatter('lu','E',c='lmax',colormap='viridis',ax=axes[0])
+    cdf.plot.scatter('log(lu)','E',c='lmax',colormap='viridis' ,ax = axes[1]  )
     plt.tight_layout()
     plt.savefig("../report/imgs/cdf_lu_vs_E")
     plt.close()
 
     # l vs TotSale
-    cdf.plot.scatter('l','TotSale',c='E',colormap='plasma')
+    cdf.plot.scatter('l','TotSale',c='E',colormap='viridis')
     plt.tight_layout()
     plt.savefig("../report/imgs/cdf_l_vs_TotSale")
     plt.close()
 
     # l vs PReturn ( unico che droppa info nascosta: chi ha comprato tanti articoli solitamente non li riporta )
-    cdf.plot.scatter('l','PReturn',c='E',colormap='viridis')
+    cdf['1/PReturn']=np.reciprocal(cdf['PReturn'])
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12,3))
+    cdf.plot.scatter('l','PReturn',c='E',colormap='viridis' ,ax = axes[0]  )
+    cdf.plot.scatter('l','1/PReturn',c='E',colormap='viridis' ,ax = axes[1]  )
     plt.tight_layout()
     plt.savefig("../report/imgs/cdf_lu_vs_PReturn")
     plt.close()
 
-    # TEST
+    # TotSale vs MeanSale
     cdf.plot.scatter('TotSale','MeanSale',c='E',colormap='viridis')
-    cdf.plot.scatter('l','MeanItems',c='E',colormap='viridis')
-    plt.show()
+    plt.tight_layout()
+    plt.savefig("../report/imgs/cdf_TotSale_vs_MeanSale")
     plt.close()
 
-    pd.plotting.scatter_matrix(cdf)
-    plt.show()
+    # l vs MeanItems
+    cdf.plot.scatter('l','MeanItems',c='E',colormap='viridis')
+    plt.tight_layout()
+    plt.savefig("../report/imgs/cdf_l_vs_MeanItems")
     plt.close()
 
 
@@ -559,7 +573,8 @@ if __name__ == "__main__":
     # distribution_and_statistics(df)
     
     # === CUSTOMER PROFILATION ===
-    # customer_profilation(df)
+    customer_profilation(df)
+    quit()
     cdf = pd.read_csv('customer_profilation.csv', index_col=0)
     customer_statistics(cdf)
 
