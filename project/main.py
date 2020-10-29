@@ -394,8 +394,10 @@ def distribution_and_statistics(df: pd.DataFrame):
     ma_country = df.groupby(['PurchaseCountry', year_month]).apply(lambda x: sum(x["Qta"] * x["Sale"]))
     ma_country = ma_country.unstack(level=0)
     
-    ma_country = ma_country.reindex(sorted(ma_country.columns), axis=1)
     ma_country = ma_country.reindex(index=natsorted(ma_country.index))
+    cols = list(ma_country.columns)
+    cols.sort(key=lambda x: ma_country[x].notnull().sum())
+    ma_country = ma_country[cols]
     for i, c in enumerate(ma_country.columns):
         ma_country[c][ma_country[c].notnull()] = i
 
@@ -409,8 +411,10 @@ def distribution_and_statistics(df: pd.DataFrame):
     plt.close()
 
     # Most popular products
-    popular_prods = df[['ProdDescr', 'Qta']].groupby('ProdDescr').agg('sum').sort_values(by='Qta', ascending=False).head(30)
-    popular_prods.plot.barh(figsize=(20,10), color='darkred')
+    print("UNIQUE PRODUCTS:", len(df['ProdID'].unique()))
+
+    popular_prods = df[['ProdDescr', 'Qta']].groupby('ProdDescr').agg('sum').sort_values(by='Qta', ascending=False).head(10)
+    popular_prods.plot.barh(figsize=(10,3), color='darkred')
     plt.tight_layout()
     plt.savefig("../report/imgs/Products_Popular")
     plt.close()
@@ -532,6 +536,7 @@ def customer_statistics(cdf: pd.DataFrame):
     pd.plotting.scatter_matrix(cdf)
     plt.show()
     plt.close()
+
 
 if __name__ == "__main__":
     pd.set_option('mode.chained_assignment', None)
