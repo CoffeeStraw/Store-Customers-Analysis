@@ -11,6 +11,17 @@ from natsort import natsorted
 import seaborn as sn
 
 
+def plot(filename=""):
+    """Conveniency function to show or save a plot
+    """
+    plt.tight_layout()
+    if filename:
+        plt.savefig(f"../report/imgs/{filename}")
+    else:
+        plt.show()
+    plt.close()
+
+
 def plt_radar(df: pd.DataFrame, filepath=""):
     """Represent a DataFrame using a radar plot.
     """
@@ -183,7 +194,7 @@ def fix_dataset(df: pd.DataFrame):
     df["ProdID"] = df["ProdID"].str.upper()
 
     # Remove purchases with prices less than or equal to zero, together with some outliers that costs less than 0.01
-    # We remove them since they're few
+    # We remove them since they're few (4)
     df = df[df["Sale"] >= 0.01]
 
     # Remove C from basketIDs, since it is pointless (we already have negative quantities to identify those)
@@ -216,37 +227,33 @@ def fix_dataset(df: pd.DataFrame):
     # === REMOVE THE OUTLIERS ===
     plt.rcParams['figure.figsize'] = 10, 10
     def iqr_non_outliers(s: pd.Series):
-        # Returns a true-list of the outliers in a column of the DataFrame,
-        # based on the quantiles
+        """Returns a true-list of the outliers in a column
+        of the DataFrame, based on the quantiles"""
         
         Q1 = s.quantile(0.25)
         Q3 = s.quantile(0.75)
 
         IQR = Q3 - Q1
-        trueList = ~((s < (Q1 - 1.5 * IQR)) | (s > (Q3 + 1.5 * IQR)))
+        trueList = (s < (Q1 - 1.5 * IQR)) | (s > (Q3 + 1.5 * IQR))
         return trueList
 
-    # Remove outliers from Sale over 0.9999 percentile (approximately 1000)
+    # Outliers in ARTICLES from SALE
     df_sale = df['Sale']
 
     df_sale.plot.box()
-    plt.tight_layout()
-    plt.savefig("../report/imgs/Outliers_Sale")
-    plt.close()
-
+    plot("../report/imgs/Outliers_Sale")
     df_sale[df_sale < 50].hist(bins=100)
-    plt.tight_layout()
-    plt.savefig("../report/imgs/Outliers_Sale_Distribution")
-    plt.close()
+    plot("../report/imgs/Outliers_Sale_Distribution")
 
-    df[df_sale > 1000]["Sale"].hist(bins=100)
-    plt.tight_layout()
-    plt.savefig("../report/imgs/Outliers_Sale_Clipped")
-    plt.close()
-
+    # Search for a threshold and remove based on that
+    df[df_sale <= 5000].plot.box()
+    plot()
+    df[df_sale <= 2000].plot.box()
+    plot()
     df = df[df_sale <= 1000]
+    quit()
 
-    # Remove outliers from Qta based on a threshold of 3500
+    # Outliers in ARTICLES from QTA
     df_qta = df["Qta"]
 
     df_qta.plot.box()
@@ -259,16 +266,15 @@ def fix_dataset(df: pd.DataFrame):
     plt.savefig("../report/imgs/Outliers_Qta_Distribution")
     plt.close()
 
-    # Let's check if iqr is effective
+    # Would IQR be effective?
     # Result: no, since we think that most of the customers are wholesalers and it would drop too many entries
-    # We will use a threshold which we defined by trying and plotting several box plots
     qta_iqr_outliers = df_qta[~iqr_non_outliers(df_qta)]
     print("QTA - IQR RESULTS:\n", qta_iqr_outliers.describe())
     print("MIN Qta Positives:", qta_iqr_outliers[qta_iqr_outliers > 0].min())
     print("MAX Qta Negatives:", qta_iqr_outliers[qta_iqr_outliers < 0].max())
     
-    # Let's check if the outliers comes from different users
-    # TODO: fai vedere come abbiamo scelto 3500 mostrando i diversi boxplot
+    # Solution: remove based on a threshold. But first one last check: how are those outliers distributed among the users?
+    # TODO: fai vedere i boxplot
     outliers = df.loc[df_qta[abs(df_qta) >= 3500].index]
     print("QTA OUTLIERS (with threshold of 3500):")
     print(outliers["Qta"].describe())
@@ -302,6 +308,8 @@ def fix_dataset(df: pd.DataFrame):
     df = df[df["BasketID"].isin(non_outliers.index)]
 
     df_articles_per_basket = df[["BasketID", "Qta"]].groupby("BasketID").agg('sum')["Qta"]
+
+    # Remove outliers from CustomerID
 
     # Remove outliers from CustomerID based on IQR
     df_totsale_per_user = pd.Series([round( sum( g[1]["Sale"]*g[1]["Qta"] ), 2) for g in df.groupby('CustomerID')], index=[g[0] for g in df.groupby('CustomerID')])
@@ -355,11 +363,11 @@ def fix_dataset(df: pd.DataFrame):
 
 def distribution_and_statistics(df: pd.DataFrame):
     # Sale statistics
-    print("SALE DESCRIBE:", df["Sale"].describe())
+    print("SALE DESCRIBE:\n", df["Sale"].describe())
 
     # Sale distribution
     df_products_catalog = df[["ProdID", "Sale"]].drop_duplicates()["Sale"]
-    print("PRODUCTS CATALOG DESCRIBE:", df_products_catalog.describe())
+    print("PRODUCTS CATALOG DESCRIBE:\n", df_products_catalog.describe())
 
     df_products_catalog.hist(bins=50)
     plt.tight_layout()
@@ -372,9 +380,9 @@ def distribution_and_statistics(df: pd.DataFrame):
     plt.close()
 
     # Distribution of buys and returns
-    print("RATION QTA POSITIVE/NEGATIVE:", (df["Qta"] > 0).value_counts())
-    print("STATISTICS QTA > 0:", df[df["Qta"] > 0]["Qta"].describe())
-    print("STATISTICS QTA < 0:", df[df["Qta"] < 0]["Qta"].describe())
+    print("RATION QTA POSITIVE/NEGATIVE:\n", (df["Qta"] > 0).value_counts())
+    print("STATISTICS QTA > 0:\n", df[df["Qta"] > 0]["Qta"].describe())
+    print("STATISTICS QTA < 0:\n", df[df["Qta"] < 0]["Qta"].describe())
 
     df.plot.scatter('Qta', 'Sale', c='Sale', colormap='winter', colorbar=False, figsize=(10,7))
     plt.tight_layout()
@@ -395,7 +403,7 @@ def distribution_and_statistics(df: pd.DataFrame):
     monthly_stats["Baskets"] = df[["PurchaseDate", "BasketID"]].drop_duplicates().groupby(year_month).size()
     monthly_stats = monthly_stats.reindex(index=natsorted(monthly_stats.index))
 
-    print("MONTHLY STATS:", monthly_stats)
+    print("MONTHLY STATS:\n", monthly_stats)
     print("CORRELAZIONE:")
     print(monthly_stats.corr())
 
@@ -409,14 +417,14 @@ def distribution_and_statistics(df: pd.DataFrame):
     plt.close()
 
     # Number of baskets and profit per country
-    tmp = df[["PurchaseCountry", "Sale", "Qta"]]
+    tmp = df[["CustomerCountry", "Sale", "Qta"]]
     tmp["Profit"] = tmp["Sale"] * tmp["Qta"]
     tmp.drop(["Qta", "Sale"], axis=1, inplace=True)
-    country_stats = tmp.groupby("PurchaseCountry").agg('sum')
+    country_stats = tmp.groupby("CustomerCountry").agg('sum')
 
-    country_stats["Baskets"] = df[['PurchaseCountry', 'BasketID']].groupby('PurchaseCountry').agg(lambda x: x.nunique())['BasketID']
+    country_stats["Baskets"] = df[['CustomerCountry', 'BasketID']].groupby('CustomerCountry').agg(lambda x: x.nunique())['BasketID']
 
-    print("COUNTRY STATS:", country_stats)
+    print("COUNTRY STATS:\n", country_stats)
     print("CORRELAZIONE:")
     print(country_stats.corr())
 
@@ -447,11 +455,8 @@ def distribution_and_statistics(df: pd.DataFrame):
 
     plt_radar(country_stats2, "../report/imgs/Country_Basket_Profit_No_UK")
 
-    # Line-Scatter Plot
-    tmp.drop('United Kingdom', axis=1).plot.area(figsize=(16,8), legend='reverse').legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
-
     # Monthly activity per country
-    ma_country = df.groupby(['PurchaseCountry', year_month]).apply(lambda x: sum(x["Qta"] * x["Sale"]))
+    ma_country = df.groupby(['CustomerCountry', year_month]).apply(lambda x: sum(x["Qta"] * x["Sale"]))
     ma_country = ma_country.unstack(level=0)
     
     ma_country = ma_country.reindex(index=natsorted(ma_country.index))
@@ -506,7 +511,7 @@ def customer_profilation(df: pd.DataFrame):
     # Preferred item
     preferred_item = lambda g: g.groupby('ProdID').agg({'Qta':'sum'}).idxmax()[0]
     # Main country
-    main_country = lambda g: g[['BasketID','PurchaseCountry']].groupby('PurchaseCountry').nunique().idxmax()[0] 
+    main_country = lambda g: g[['BasketID','CustomerCountry']].groupby('CustomerCountry').nunique().idxmax()[0] 
     # Number of baskets
     n_baskets = lambda g:  g['BasketID'].nunique()
 
@@ -617,7 +622,6 @@ def customer_statistics(cdf: pd.DataFrame):
 if __name__ == "__main__":
     pd.set_option('mode.chained_assignment', None)
 
-    """
     df = pd.read_csv('customer_supermarket.csv', sep='\t', index_col=0, parse_dates=["BasketDate"])
 
     # Prints data's samples and informations,
@@ -629,8 +633,9 @@ if __name__ == "__main__":
     fix_dataset(df)
     quit()
     """
+    """
 
-    df = pd.read_csv('customer_supermarket_2.csv', index_col=0, parse_dates=["PurchaseDate"])
+    # df = pd.read_csv('customer_supermarket_2.csv', index_col=0, parse_dates=["PurchaseDate"])
 
     # === Data Distribution & Statistics ===
     # distribution_and_statistics(df)
@@ -638,9 +643,8 @@ if __name__ == "__main__":
     # === CUSTOMER PROFILATION ===
     # customer_profilation(df)
     cdf = pd.read_csv('customer_profilation.csv', index_col=0)
-    """
     customer_statistics(cdf)
-    """
+    quit()
 
     from sklearn.preprocessing import StandardScaler, MinMaxScaler
     from sklearn.cluster import KMeans
