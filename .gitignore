@@ -139,4 +139,5 @@ cython_debug/
 
 # === CUSTOM ===
 tips_*
+adult_classification*
 tmp.*
