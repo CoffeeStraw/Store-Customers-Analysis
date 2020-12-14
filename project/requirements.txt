@@ -1,1 +1,5 @@
+jupyterlab
+matplotlib
+seaborn
+scikit-learn
 pandas
