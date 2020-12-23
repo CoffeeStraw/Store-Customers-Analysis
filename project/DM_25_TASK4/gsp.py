@@ -190,13 +190,15 @@ def generateContiguousSubsequences(sequence):
     """
     result = []
     
-    tmp = copy.deepcopy(sequence)
-    tmp.pop(0)
-    result.append(tmp)  # Append sub-sequence without first element
+    if len(sequence[0]) == 1:
+        tmp = copy.deepcopy(sequence)
+        tmp.pop(0)
+        result.append(tmp)  # Append sub-sequence without first element
 
-    tmp = copy.deepcopy(sequence)
-    tmp.pop(-1)
-    result.append(tmp)  # Append sub-sequence without last element
+    if len(sequence[-1]) == 1:
+        tmp = copy.deepcopy(sequence)
+        tmp.pop(-1)
+        result.append(tmp)  # Append sub-sequence without last element
 
     # For each event with len > 1, generate sub-sequences removing 1 item from them
     for i in range(len(sequence)):
