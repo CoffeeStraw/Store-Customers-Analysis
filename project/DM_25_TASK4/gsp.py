@@ -28,27 +28,67 @@ from operator import itemgetter
 #This is a simple recursive method that checks if subsequence is a subSequence of mainSequence
 
 
-
-def isSubsequence(mainSequence, subSequence):
-    subSequenceClone = list(subSequence)  # clone the sequence, because we will alter it
-    return isSubsequenceRecursive(mainSequence, subSequenceClone)  # start recursion
-
-
-def isSubsequenceRecursive(mainSequence, subSequenceClone, start=0):
+def is_subsequence(seq, sub_seq, seq_time_stamps=[], max_span=None, min_gap=None, max_gap=None):
     """
-    Function for the recursive call of isSubsequence, not intended for external calls
+    Iterative function to check whether sub_seq is a sub-sequence of seq.
     """
-    # Check if empty: End of recursion, all itemsets have been found
-    if (not subSequenceClone):
+    # Temporary number for the starting event in the seq
+    i = 0
+
+    # No Time Constraints? Simpler algorithm.
+    if not seq_time_stamps:
+        # Assign a number to each event
+        seq = list(enumerate(seq))
+
+        for sub_event in sub_seq:
+            sub_event = set(sub_event)
+            for e_i, event in seq[i:]:
+                if set(event).issuperset(sub_event):
+                    # We found a match between two events
+                    i = e_i + 1
+                    break
+            else: # We iterated over all the events in seq without corrispondence
+                return False
         return True
-    # retrieves element of the subsequence and removes is from subsequence
-    firstElem = set(subSequenceClone.pop(0))
-    # Search for the first itemset...
-    for i in range(start, len(mainSequence)):
-        if (set(mainSequence[i]).issuperset(firstElem)):
-            # and recurse
-            return isSubsequenceRecursive(mainSequence, subSequenceClone, i + 1)
-    return False
+
+    # Time Constraints: we need more variables.
+    # Assign a number to each event-ts couple
+    seq = list(enumerate(zip(seq, seq_time_stamps)))
+
+    # Temporary variables for time constraints
+    start, curr = None, None
+
+    for sub_event in sub_seq:
+        sub_event = set(sub_event)
+        for e_i, (event, ts) in seq[i:]:
+            if set(event).issuperset(sub_event):
+                # We found a match between two events
+                i = e_i + 1
+                
+                if not start:
+                    # First match: save time stamps for later
+                    start = ts
+                    curr = ts
+                else:
+                    # This is at least the second match found: we can check time contraints
+                    diff = ts - curr
+                    # Check for min_gap validity
+                    if min_gap:
+                        if diff < min_gap:
+                            return False  # Min_gap violated
+                    if max_gap:
+                        if diff > max_gap:
+                            return False  # Max_gap violated
+                    curr = ts
+                break
+        else: # We iterated over all the events in seq without corrispondence
+            return False
+
+    # Last check: max_span validity
+    if max_span:
+        if curr - start > max_span:
+            return False  # Max_span violated
+    return True
 
 
 # ### Size of sequences
@@ -60,11 +100,13 @@ def sequenceSize(sequence):
 
 
 # ### Support of a sequence
-def countSupport(dataset, candidateSequence):
+def countSupport(dataset, candidateSequence, time_stamps=[], max_span=None, min_gap=None, max_gap=None):
     """
-    Computes the support of a sequence in a dataset
+    Computes the support of a sequence in a dataset.
     """
-    return round(sum(1 for seq in dataset if isSubsequence(seq, candidateSequence)) / len(dataset), 2)
+    if not time_stamps:
+        return round(sum(1 for seq in dataset if is_subsequence(seq, candidateSequence)) / len(dataset), 2)
+    return round(sum(1 for seq, ts in zip(dataset, time_stamps) if is_subsequence(seq, candidateSequence, ts, max_span, min_gap, max_gap)) / len(dataset), 2)
 
 
 # # AprioriAll
@@ -142,16 +184,37 @@ def generateDirectSubsequences(sequence):
     return result
 
 
-def pruneCandidates(candidatesLastLevel, candidatesGenerated):
+def generateContiguousSubsequences(sequence):
     """
-    Prunes the set of candidates generated for size k given all frequent sequence of level (k-1), as done in AprioriAll
+    Compute the (k-1)-contiguous-subsequences of the sequence.
     """
-    return [cand for cand in candidatesGenerated if
-            all(x in candidatesLastLevel for x in generateDirectSubsequences(cand))]
+    result = []
+    
+    tmp = copy.deepcopy(sequence)
+    tmp.pop(0)
+    result.append(tmp)  # Append sub-sequence without first element
+
+    tmp = copy.deepcopy(sequence)
+    tmp.pop(-1)
+    result.append(tmp)  # Append sub-sequence without last element
+
+    # For each event with len > 1, generate sub-sequences removing 1 item from them
+    for i in range(len(sequence)):
+        if len(sequence[i]) > 1:
+            for j in range(len(sequence[i])):
+                tmp = copy.deepcopy(sequence)
+                tmp[i].pop(j)
+                result.append(tmp)
+    
+    # We are not interested in generating all the contiguous-subsequences,
+    # but only in the (k-1) ones, so we stop here
+    
+    return result
+
 
 
 # ### Put it all together:
-def apriori(dataset, minSupport, verbose=False):
+def apriori(dataset, minSupport, time_stamps=[], max_span=None, min_gap=None, max_gap=None, verbose=False):
     """
     The AprioriAll algorithm. Computes the frequent sequences in a seqeunce dataset for a given minSupport
 
@@ -159,6 +222,11 @@ def apriori(dataset, minSupport, verbose=False):
         dataset: A list of sequences, for which the frequent (sub-)sequences are computed
         minSupport: The minimum support that makes a sequence frequent
         verbose: If true, additional information on the mining process is printed (i.e., candidates on each level)
+        time_stamps: Time stamps of the provided sequences. If empty, no time constraints will be applied.
+        max_span: Maximum allowed time difference between latest and earliest events, expressed using `datetime.timedelta`.
+        min_gap: Minimum time difference between two consecutive elements, expressed using `datetime.timedelta`.
+        max_gap: Maximum time difference between two consecutive elements, expressed using `datetime.timedelta`.
+    
     Returns:
         A list of tuples (s, c), where s is a frequent sequence, and c is the count for that sequence
     """
@@ -171,8 +239,7 @@ def apriori(dataset, minSupport, verbose=False):
                         countSupport(dataset, i) >= minSupport]
     Overall.append(singleItemCounts)
     if verbose:
-        print
-        "Result, lvl 1: " + str(Overall[0])
+        print("Result, lvl 1: " + str(Overall[0]))
 
     k = 1
     while (True):
@@ -182,10 +249,12 @@ def apriori(dataset, minSupport, verbose=False):
         candidatesLastLevel = [x[0] for x in Overall[k - 1]]
         candidatesGenerated = generateCandidates(candidatesLastLevel)
         # 2. Candidate pruning (using a "containsall" subsequences)
+        generator = generateContiguousSubsequences if time_stamps else generateDirectSubsequences
         candidatesPruned = [cand for cand in candidatesGenerated if
-                            all(x in candidatesLastLevel for x in generateDirectSubsequences(cand))]
-        # 3. Candidate checking
-        candidatesCounts = [(i, countSupport(dataset, i)) for i in candidatesPruned]
+                            all(x in candidatesLastLevel for x in generator(cand))]
+        # 3. Support Counting
+        candidatesCounts = [(i, countSupport(dataset, i, time_stamps, max_span, min_gap, max_gap)) for i in candidatesPruned]
+        # 4. Candidate Elimination
         resultLvl = [(i, count) for (i, count) in candidatesCounts if (count >= minSupport)]
         if verbose:
             print("Candidates generated, lvl " + str(k + 1) + ": " + str(candidatesGenerated))
