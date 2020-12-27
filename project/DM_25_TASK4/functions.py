@@ -24,7 +24,7 @@ def sequentialize(df, return_times=False):
     seq_data = []
     times = []
     for customer in df.groupby('CustomerID'):
-        customer = customer[1]
+        customer = customer[1].sort_values("PurchaseDate")
         tmp = []
         tmp2 = []
         for basket in customer.groupby('BasketID'):
@@ -33,14 +33,23 @@ def sequentialize(df, return_times=False):
             time = basket['PurchaseDate'].max()
             tmp.append(purchases)
             tmp2.append(time)
+        
+        # Hack for Pandas not capable of ordering...
+        s = pd.Series(tmp, index=tmp2)
+        s.sort_index(inplace=True)
+        tmp = list(s.values)
+        tmp2 = list(s.index)
+
+        # Append partial results
         seq_data.append(tmp)
         times.append(tmp2)
+
     if not return_times:
         return seq_data
     return seq_data, times
 
 
-def read_write_result(read, min_baskets, min_sup, max_span=None, min_gap=None, max_gap=None):
+def read_write_result(read, min_baskets, min_sup, result_set=None, max_span=None, min_gap=None, max_gap=None):
     """Read/write a result_set from/to a pickle file.
     """
     # Build filename
@@ -123,7 +132,7 @@ def compute_patterns_mean_qta(result_set_original, df):
     n_customers = len(df['CustomerID'].unique())
     for customer_i, customer in enumerate(df.groupby('CustomerID')):
         # Progress
-        print(f"{customer_i+1} / {n_customers}")
+        print(f"\r{customer_i+1} / {n_customers}", end="")
         # Extract baskets from the customer
         baskets_customer = list(enumerate([x[1] for x in customer[1].groupby('BasketID')]))
         
@@ -151,6 +160,7 @@ def compute_patterns_mean_qta(result_set_original, df):
                         result_set[result_i][2][i][j] += item['Qta']
 
                 out.append(transactions)
+    print("\n", end="")
 
     # Compute mean of the qta previously found
     for res in result_set:

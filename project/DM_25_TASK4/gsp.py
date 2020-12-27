@@ -58,6 +58,9 @@ def is_subsequence(seq, sub_seq, seq_time_stamps=[], max_span=None, min_gap=None
     # Temporary variables for time constraints
     start, curr = None, None
 
+    # To be deleted
+    prev_event = None
+
     for sub_event in sub_seq:
         sub_event = set(sub_event)
         for e_i, (event, ts) in seq[i:]:
@@ -69,9 +72,11 @@ def is_subsequence(seq, sub_seq, seq_time_stamps=[], max_span=None, min_gap=None
                     # First match: save time stamps for later
                     start = ts
                     curr = ts
+                    prev_event = sub_event
                 else:
                     # This is at least the second match found: we can check time contraints
                     diff = ts - curr
+
                     # Check for min_gap validity
                     if min_gap:
                         if diff < min_gap:
