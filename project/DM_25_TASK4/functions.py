@@ -55,11 +55,11 @@ def read_write_result(read, min_baskets, min_sup, result_set=None, max_span=None
     # Build filename
     filename = f'gsp_res/{min_baskets}mb_{int(min_sup*100)}ms'
     if max_span:
-        filename += f'_{str(max_span)}maxspan'
+        filename += f'_{str(max_span.days)}maxspan'
     if min_gap:
-        filename += f'_{str(min_gap)}mingap'
+        filename += f'_{str(min_gap.days)}mingap'
     if max_gap:
-        filename += f'_{str(max_gap)}maxgap'
+        filename += f'_{str(max_gap.days)}maxgap'
     filename += '.pickle'
 
     if read:
@@ -83,7 +83,7 @@ def convert_tuples_to_list(result_set):
     return result_set
 
 
-def print_distribution(result_set):
+def compute_distribution(result_set, print_out=True):
     """Compute distribution of the lengths of sequences and n. of sequences containing duplicates
     """
     cnt_len = {1:0, 2:0, 3:0, 4:0, 5:0}
@@ -98,8 +98,11 @@ def print_distribution(result_set):
         if len(set(tmp)) < len_tmp:
             cnt_duplicates += 1
 
-    print(f"Distribution of lengths: {cnt_len}")
-    print(f"Sequences containing duplicates: {cnt_duplicates} / {len(result_set)}")
+    if print_out:
+        print(f"Distribution of lengths: {cnt_len}")
+        print(f"Sequences containing duplicates: {cnt_duplicates} / {len(result_set)}")
+    else:
+        return cnt_len, cnt_duplicates
 
 
 def compute_patterns_mean_qta(result_set_original, df):
@@ -128,7 +131,6 @@ def compute_patterns_mean_qta(result_set_original, df):
                         NO: scorri carrello_2 col prossimo carrello (fino a quando non finiscono, se finiscono allora questo cliente NON è ok)
     """
     # Find original transactions for each pattern and collect statistics
-    out = []
     n_customers = len(df['CustomerID'].unique())
     for customer_i, customer in enumerate(df.groupby('CustomerID')):
         # Progress
@@ -157,18 +159,59 @@ def compute_patterns_mean_qta(result_set_original, df):
                 for i, basket in enumerate(transactions):
                     for j in range(len(basket)):
                         item = basket.iloc[j]
-                        result_set[result_i][2][i][j] += item['Qta']
+                        result_set[result_i][-1][i][j] += item['Qta']
 
-                out.append(transactions)
     print("\n", end="")
 
     # Compute mean of the qta previously found
     for res in result_set:
         min_sup = res[1]
         sup = min_sup * n_customers
-        for i in range(len(res[2])):
-            for j in range(len(res[2][i])):
-                res[2][i][j] = round(res[2][i][j] / sup)
+        for i in range(len(res[-1])):
+            for j in range(len(res[-1][i])):
+                res[-1][i][j] = round(res[-1][i][j] / sup)
+    return result_set
+
+
+def compute_patterns_time(result_set_original, seq_data, time_stamps):
+    """Compute patterns time diff.
+    """
+    result_set = []
+    # Keep only results with len > 2
+    for r in result_set_original:
+        if len(r[0]) == 2:
+            result_set.append(r)
+
+    # Prepare result_set
+    for i in range(len(result_set)):
+        result_set[i].append([])
+
+    # Find original transactions for each pattern and collect statistics
+    n_customers = len(seq_data)
+    for customer_i, customer in enumerate(seq_data):
+        # Progress
+        print(f"\r{customer_i+1} / {n_customers}", end="")
+        # Extract baskets from the customer
+        baskets_customer = list(enumerate(seq_data[customer_i]))
+        
+        for result_i in range(len(result_set)):
+            res = result_set[result_i][0]
+
+            # Compare the baskets in the result against those of the customer
+            bc_i = 0
+            transactions = []
+            for basket_res in res:
+                for i, basket_customer in baskets_customer[bc_i:]:
+                    if set(basket_customer).issuperset(set(basket_res)):
+                        bc_i = i + 1
+                        transactions.append(time_stamps[customer_i][i])
+                        break
+                else: # We iterated over all the baskets of the customer without finding a match for basket_res
+                    break
+            else:
+                result_set[result_i][-1].append((transactions[1] - transactions[0]).days)
+
+    print("\n", end="")
     return result_set
 
 
@@ -183,4 +226,5 @@ def prodID_to_prodDescr(result_set, df):
                 tmp2.append(df[df['ProdID'] == p]['ProdDescr'].iloc[0])
             tmp.append(tmp2)
         result_set[r_i][0] = tmp
+    return result_set
 
