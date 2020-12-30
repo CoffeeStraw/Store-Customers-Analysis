@@ -141,5 +141,3 @@ cython_debug/
 tips_*
 adult_classification*
 tmp.*
-project/DM_25_TASK4/gsp_res/*
-!project/DM_25_TASK4/gsp_res/readme.md
