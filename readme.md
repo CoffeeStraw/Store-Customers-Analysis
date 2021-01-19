@@ -1,8 +1,6 @@
 # Analysis of a Store's Customers
 
-*Analysis of a Store's Customers using Data Mining tools.*
-
-Project for the Data Mining course @ UniPi.
+*Analysis of a Store's Customers using Data Mining tools.*<br>Project for the **Data Mining course 2020/2021 @ UniPi**.
 
 ## Developers
 
