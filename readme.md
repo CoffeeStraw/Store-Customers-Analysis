@@ -1,6 +1,7 @@
 # Analysis of a Store's Customers
 
 *Analysis of a Store's Customers using Data Mining tools.*
+
 Project for the Data Mining course @ UniPi.
 
 ## Developers
